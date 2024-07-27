@@ -51,7 +51,6 @@ initGame :: proc() -> GameState {
 	}
 }
 
-// Packets
 PacketType :: enum {
 	PADDLE_UPDATE,
 	GAME_STATE,
@@ -84,7 +83,7 @@ updateGameClient :: proc(g: ^GameState, deltaTime: f32, soc: net.UDP_Socket, end
 			PaddleUpdate {g.rightPaddle.y},
 		}
 		
-		_, up_send_err_u := net.send_udp(soc, mem.ptr_to_bytes(&packet1), endp)
+		ok, up_send_err_u := net.send_udp(soc, mem.ptr_to_bytes(&packet1), endp)
 
 		if up_send_err_u != nil {
 			fmt.panicf("networking error %s", up_send_err_u)
@@ -102,17 +101,18 @@ updateGameClient :: proc(g: ^GameState, deltaTime: f32, soc: net.UDP_Socket, end
 		}
 	}
 
-	data: [dynamic]u8
+	data: [size_of(Packet)]u8
 
 	bytes_read, _, recv_err := net.recv_udp(soc, data[:])
 
+	fmt.println(bytes_read)
 
-	if recv_err != nil {
-		fmt.panicf("networking error %s", recv_err)
-	}
+//	if recv_err != nil && recv_err != net.Accept_Error.Would_Block  {
+//		fmt.panicf("networking error %s", recv_err)
+//	}
+
 	if bytes_read != 0 {
 		pac := mem.slice_data_cast([]Packet, data[:bytes_read])[0]	
-
 		if pac.type == PacketType.GAME_STATE {
 			g.leftPaddle.y	= pac.data.(NetworkGameState).left_paddle_y
 			g.ball.x = pac.data.(NetworkGameState).ball_x
@@ -123,7 +123,7 @@ updateGameClient :: proc(g: ^GameState, deltaTime: f32, soc: net.UDP_Socket, end
 	}
 }
 
-updateGameServer :: proc(g: ^GameState, deltaTime: f32, soc: net.UDP_Socket, endp: net.Endpoint) {
+updateGameServer :: proc(g: ^GameState, deltaTime: f32, soc: net.UDP_Socket, endp: net.Endpoint, clendp: net.Endpoint) {
 	if rl.IsKeyDown(rl.KeyboardKey.W) {
 		g.leftPaddle.y -=  cast(i32)(g.leftPaddle.speed * deltaTime)
 	}
@@ -133,17 +133,15 @@ updateGameServer :: proc(g: ^GameState, deltaTime: f32, soc: net.UDP_Socket, end
 
 	g.leftPaddle.y = cast(i32)rl.Clamp( cast(f32) g.leftPaddle.y, 0, SCREEN_HEIGHT - PADDLE_HEIGHT)
 
-	data: [dynamic]u8
+	data: [size_of(Packet)]u8
 	bytes_read, _, recv_err := net.recv_udp(soc, data[:])
-	
-	if recv_err != nil {
-		fmt.panicf("networking error %s", recv_err)
-	}
+
+//	if recv_err != nil && recv_err != net.Accept_Error.Would_Block  {
+//		fmt.panicf("networking error %s", recv_err)
+//	}
 
 	if bytes_read != 0 {
 		pac := mem.slice_data_cast([]Packet, data[:bytes_read])[0]
-
-
 		if pac.type == PacketType.PADDLE_UPDATE {
 			g.rightPaddle.y = pac.data.(PaddleUpdate).y
 		}
@@ -194,8 +192,7 @@ updateGameServer :: proc(g: ^GameState, deltaTime: f32, soc: net.UDP_Socket, end
 
 	}
 
-	_, send_err :=  net.send_udp(soc, mem.ptr_to_bytes(&packet), endp)
-	
+	ok, send_err :=  net.send_udp(soc, mem.ptr_to_bytes(&packet), clendp)
 	if send_err != nil {
 		fmt.panicf("networking error %s", send_err)
 	}
@@ -203,15 +200,7 @@ updateGameServer :: proc(g: ^GameState, deltaTime: f32, soc: net.UDP_Socket, end
 }
 
 serverGame :: proc() {
-	fmt.println("Welcome to pong console - we do not support console commands at this time")
 
-	rl.InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "pong-server")
-	defer rl.CloseWindow()
-
-	rl.SetTargetFPS(60)
-
-	g := initGame()
-	
 	endp,_, err := net.resolve("127.0.0.1:6969")
 
 	if err != nil {
@@ -224,8 +213,29 @@ serverGame :: proc() {
 		fmt.panicf("connection error %s", conn_err)
 	}
 
+	data: [256]u8
+	_, clendp, recv_err := net.recv_udp(conn, data[:])
+
+
+	if recv_err != nil {
+			fmt.panicf("udp recv error: %s")
+	}
+
+	res := string(data[:])
+	//fmt.println("client said: ", res)
+
+	net.set_blocking(conn, false);
+
+	rl.InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "pong-server")
+	defer rl.CloseWindow()
+
+	rl.SetTargetFPS(60)
+
+	g := initGame()
+	
 	for !rl.WindowShouldClose() {
-		updateGameServer(&g, rl.GetFrameTime(), conn, endp)
+		fmt.println("in client game loop")
+		
 		
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.BLACK)
@@ -234,11 +244,7 @@ serverGame :: proc() {
 		for y := 0; y < SCREEN_HEIGHT; y += 20 {
 			rl.DrawRectangle(SCREEN_WIDTH / 2 - 10 / 2, cast(i32)y, 10, 10, rl.RAYWHITE)
 		}
-		
-		fmt.println("%v", g)
-
-
-
+	
 		rl.DrawRectangle(g.leftPaddle.x, g.leftPaddle.y, PADDLE_WIDTH, PADDLE_HEIGHT, rl.RAYWHITE)
 		rl.DrawRectangle(g.rightPaddle.x, g.rightPaddle.y, PADDLE_WIDTH, PADDLE_HEIGHT, rl.RAYWHITE)
 		rl.DrawRectangle(g.ball.x, g.ball.y, BALL_RADIUS, BALL_RADIUS, rl.RAYWHITE)
@@ -247,19 +253,14 @@ serverGame :: proc() {
 		rl.DrawText(fmt.ctprint(g.rightScore), 3 * SCREEN_WIDTH / 4, 20, 40, rl.RAYWHITE)
 
 		rl.EndDrawing()
+
+		updateGameServer(&g, rl.GetFrameTime(), conn, endp, clendp)	
 	}
 }
 
 clientGame :: proc() {
 	fmt.println("Welcome to pong console - we do not support console commands at this time")
 
-	rl.InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "pong-client")
-	defer rl.CloseWindow()
-
-	rl.SetTargetFPS(60)
-
-	g := initGame()
-	
 	endp, _, err := net.resolve("127.0.0.1:6969")
 
 	if err != nil {
@@ -272,8 +273,26 @@ clientGame :: proc() {
 		fmt.panicf("connection error %s", conn_err)
 	}
 
+	st := "Hello, Server"
+
+	_, err2 := net.send_udp(conn, transmute([]u8)st, endp)
+
+	if err2 != nil {
+		fmt.panicf("connection error %s", err2)
+	}
+
+	net.set_blocking(conn, false);
+
+	rl.InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "pong-client")
+	defer rl.CloseWindow()
+
+	rl.SetTargetFPS(60)
+
+	g := initGame()
+	
 	for !rl.WindowShouldClose() {
-		updateGameClient(&g, rl.GetFrameTime(), conn, endp)
+		fmt.println("in client game loop")
+		
 		
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.BLACK)
@@ -283,8 +302,6 @@ clientGame :: proc() {
 			rl.DrawRectangle(SCREEN_WIDTH / 2 - 10 / 2, cast(i32)y, 10, 10, rl.RAYWHITE)
 		}
 
-		fmt.println("%v", g)
-
 		rl.DrawRectangle(g.leftPaddle.x, g.leftPaddle.y, PADDLE_WIDTH, PADDLE_HEIGHT, rl.RAYWHITE)
 		rl.DrawRectangle(g.rightPaddle.x, g.rightPaddle.y, PADDLE_WIDTH, PADDLE_HEIGHT, rl.RAYWHITE)
 		rl.DrawRectangle(g.ball.x, g.ball.y, BALL_RADIUS, BALL_RADIUS, rl.RAYWHITE)
@@ -293,8 +310,9 @@ clientGame :: proc() {
 		rl.DrawText(fmt.ctprint(g.rightScore), 3 * SCREEN_WIDTH / 4, 20, 40, rl.RAYWHITE)
 
 		rl.EndDrawing()
-	}
 
+		updateGameClient(&g, rl.GetFrameTime(), conn, endp)
+	}
 }
 
 startGame :: proc() {

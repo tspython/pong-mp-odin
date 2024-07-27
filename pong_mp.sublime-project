@@ -1,0 +1,15 @@
+{
+	"folders":
+	[
+		{
+			"path" : "."
+		}
+	],
+	"build_systems":
+	[
+		{
+			"name": "pong_mp",
+			"cmd": ["C:/odinlang/odin.exe", "build", "main.odin", "-file"]
+		}
+	]
+}
