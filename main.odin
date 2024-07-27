@@ -235,7 +235,7 @@ serverGame :: proc() {
 	
 	for !rl.WindowShouldClose() {
 		fmt.println("in client game loop")
-		
+		updateGameServer(&g, rl.GetFrameTime(), conn, endp, clendp)	
 		
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.BLACK)
@@ -254,7 +254,7 @@ serverGame :: proc() {
 
 		rl.EndDrawing()
 
-		updateGameServer(&g, rl.GetFrameTime(), conn, endp, clendp)	
+		
 	}
 }
 
@@ -292,7 +292,7 @@ clientGame :: proc() {
 	
 	for !rl.WindowShouldClose() {
 		fmt.println("in client game loop")
-		
+		updateGameClient(&g, rl.GetFrameTime(), conn, endp)
 		
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.BLACK)
@@ -310,8 +310,6 @@ clientGame :: proc() {
 		rl.DrawText(fmt.ctprint(g.rightScore), 3 * SCREEN_WIDTH / 4, 20, 40, rl.RAYWHITE)
 
 		rl.EndDrawing()
-
-		updateGameClient(&g, rl.GetFrameTime(), conn, endp)
 	}
 }
 
